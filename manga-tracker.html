@@ -563,7 +563,7 @@ function openEditModal(id){
   document.getElementById('modalOverlay').classList.add('open');
 }
 function closeModal(){document.getElementById('modalOverlay').classList.remove('open');}
-async function saveEntry(){
+function saveEntry(){
   const titre=document.getElementById('f-titre').value.trim();
   if(!titre){showToast('Titre requis');return;}
   const entry={
@@ -580,13 +580,13 @@ async function saveEntry(){
   if(editingId){collection[collection.findIndex(i=>i.id===editingId)]=entry;showToast('✓ Série modifiée');}
   else{collection.push(entry);showToast('✓ Série ajoutée');}
   closeModal();
-  await saveToStorage();
+  saveToStorage();
   renderCollection();
 }
-async function deleteEntry(id){
+function deleteEntry(id){
   if(!confirm('Supprimer cette série ?'))return;
   collection=collection.filter(i=>i.id!==id);
-  await saveToStorage();
+  saveToStorage();
   renderCollection();showToast('Série supprimée');
 }
 
@@ -776,37 +776,32 @@ async function handleScan(event){
   }
 }
 
-// ═══ PERSISTANCE — window.storage (artifact API) ═══
-const STORAGE_KEY = 'manga-collection-v1';
+// ═══ PERSISTANCE localStorage ═══
+const STORAGE_KEY = 'manga-tracker-v1';
 
-async function saveToStorage(){
+function saveToStorage(){
   try{
-    await window.storage.set(STORAGE_KEY, JSON.stringify({collection, nextId}));
-  }catch(e){
-    // Silencieux — l'app fonctionne quand même sans sauvegarde
-  }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({collection, nextId}));
+  }catch(e){}
 }
 
-async function loadFromStorage(){
+function loadFromStorage(){
   try{
-    const result = await window.storage.get(STORAGE_KEY);
-    if(result && result.value){
-      const data = JSON.parse(result.value);
-      if(data.collection && data.collection.length){
-        collection = data.collection;
-        nextId = data.nextId || 18;
-        return true;
-      }
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw) return false;
+    const data = JSON.parse(raw);
+    if(data.collection && data.collection.length){
+      collection = data.collection;
+      nextId = data.nextId || 18;
+      return true;
     }
   }catch(e){}
   return false;
 }
 
 // ═══ INIT ═══
-(async()=>{
-  await loadFromStorage();
-  renderCollection();
-})();
+loadFromStorage();
+renderCollection();
 
 </script>
 </body>
