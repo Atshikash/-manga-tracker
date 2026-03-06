@@ -223,13 +223,24 @@ header{display:flex;align-items:center;justify-content:space-between;padding:14p
   <div id="view-scan" class="view">
     <div class="sec-hd"><div><div class="redbar"></div><div class="sec-title">Ajouter un manga</div></div></div>
 
-    <!-- Recherche par titre -->
-    <div style="margin-bottom:16px">
-      <div style="font-size:8px;letter-spacing:2px;color:var(--smoke);text-transform:uppercase;margin-bottom:8px">Recherche rapide par titre</div>
-      <div style="display:flex;gap:8px">
-        <input class="finput" id="searchInput" placeholder="Ex: Berserk, Solo Leveling…" style="flex:1" onkeydown="if(event.key==='Enter')searchManga()">
-        <button class="add-btn" style="clip-path:none;white-space:nowrap" onclick="searchManga()">識 Chercher</button>
-      </div>
+    <!-- SCAN PHOTO -->
+    <div style="font-size:8px;letter-spacing:2px;color:var(--smoke);text-transform:uppercase;margin-bottom:8px">Scanner une couverture</div>
+    <div class="scan-zone" style="margin-bottom:16px">
+      <input type="file" accept="image/*" capture="environment" id="fileInput" onchange="handleScan(event)">
+      <span class="scan-icon" style="font-family:'Noto Serif JP',serif;font-size:42px;color:var(--gold)">識</span>
+      <div class="scan-ztitle">Photographier la couverture</div>
+      <div class="scan-zsub">L'IA identifie et remplit le formulaire</div>
+    </div>
+
+    <div id="scanStatus" style="display:none;padding:16px;background:var(--ash2);border:1px solid var(--border);text-align:center;margin-bottom:16px">
+      <div class="ai-load"><div class="ai-spin"></div><div class="ai-txt">Identification en cours…</div></div>
+    </div>
+
+    <!-- RECHERCHE PAR TITRE -->
+    <div style="font-size:8px;letter-spacing:2px;color:var(--smoke);text-transform:uppercase;margin-bottom:8px;margin-top:8px">Ou rechercher par titre</div>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <input class="finput" id="searchInput" placeholder="Ex: Berserk, Solo Leveling…" style="flex:1" onkeydown="if(event.key==='Enter')searchManga()">
+      <button class="add-btn" style="clip-path:none;white-space:nowrap" onclick="searchManga()">識 Chercher</button>
     </div>
 
     <div id="searchStatus" style="display:none;padding:16px;background:var(--ash2);border:1px solid var(--border);text-align:center;margin-bottom:16px">
@@ -241,9 +252,10 @@ header{display:flex;align-items:center;justify-content:space-between;padding:14p
       <div id="searchResultContent"></div>
     </div>
 
+    <!-- SAISIE MANUELLE -->
     <div style="padding:14px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05)">
-      <div style="font-size:8px;letter-spacing:2px;color:var(--smoke);margin-bottom:10px;text-transform:uppercase">📷 Pour scanner une couverture</div>
-      <div style="font-size:10px;color:var(--mist);line-height:1.7">Glisse une photo dans le chat Claude — j'identifie le manga et j'ajoute les infos directement à ta collection.</div>
+      <div style="font-size:8px;letter-spacing:2px;color:var(--smoke);margin-bottom:10px;text-transform:uppercase">Saisie manuelle</div>
+      <button class="add-btn" style="width:100%;clip-path:none" onclick="openAddModal()">+ Ajouter manuellement</button>
     </div>
   </div>
 
@@ -692,8 +704,70 @@ function prefillFromSearch(info){
   document.getElementById('modalTitle').textContent = '✓ Pré-rempli — vérifie et complète';
 }
 
-// Ancien scan désactivé — remplacé par searchManga()
-async function handleScan(){ showToast('Utilise la recherche par titre'); }
+// ═══ SCAN PHOTO IA ═══
+async function handleScan(event){
+  const file = event.target.files[0]; if(!file) return;
+  const status = document.getElementById('scanStatus');
+  status.style.display = 'block';
+
+  try{
+    const base64 = await resizeImage(file, 1024, 0.80);
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 400,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64 } },
+            { type: 'text', text: 'Identifie ce manga. Reponds UNIQUEMENT avec ce JSON valide, rien d\'autre:\n{"titre":"","tome":"1","auteur":"","editeur_fr":"","genre":"","total_tomes":0}' }
+          ]
+        }]
+      })
+    });
+
+    status.style.display = 'none';
+
+    if(!response.ok){
+      const t = await response.text();
+      let msg = `HTTP ${response.status}`;
+      try{ msg = JSON.parse(t).error?.message || msg; }catch{}
+      throw new Error(msg);
+    }
+
+    const data = await response.json();
+    const txt = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').trim();
+    const m = txt.match(/\{[\s\S]*\}/);
+    if(!m) throw new Error('Format inattendu');
+    const info = JSON.parse(m[0]);
+
+    // Déjà dans la collection ?
+    const existing = collection.find(i => {
+      const a = i.titre.toLowerCase().replace(/[^a-z0-9]/g,'');
+      const b = (info.titre||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+      return b.length > 3 && (a.includes(b.slice(0,5)) || b.includes(a.slice(0,5)));
+    });
+
+    if(existing){
+      showToast(`"${existing.titre}" déjà dans ta collection`);
+      openDetail(existing.id);
+      return;
+    }
+
+    prefillFromSearch(info);
+
+  }catch(err){
+    status.style.display = 'none';
+    showToast('Scan échoué — essaie la recherche par titre');
+  }
+}
 
 // ═══ PERSISTANCE — window.storage (artifact API) ═══
 const STORAGE_KEY = 'manga-collection-v1';
