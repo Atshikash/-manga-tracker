@@ -721,7 +721,7 @@ async function handleScan(event){
         'anthropic-dangerous-direct-browser-access': 'true'
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-haiku-4-5',
         max_tokens: 400,
         messages: [{
           role: 'user',
@@ -744,28 +744,35 @@ async function handleScan(event){
 
     const data = await response.json();
     const txt = (data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('').trim();
+
+    // Extraire JSON même entouré de texte
     const m = txt.match(/\{[\s\S]*\}/);
-    if(!m) throw new Error('Format inattendu');
+    if(!m) throw new Error('Réponse: ' + txt.slice(0,80));
     const info = JSON.parse(m[0]);
+
+    if(!info.titre) throw new Error('Titre non identifié');
 
     // Déjà dans la collection ?
     const existing = collection.find(i => {
       const a = i.titre.toLowerCase().replace(/[^a-z0-9]/g,'');
-      const b = (info.titre||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+      const b = info.titre.toLowerCase().replace(/[^a-z0-9]/g,'');
       return b.length > 3 && (a.includes(b.slice(0,5)) || b.includes(a.slice(0,5)));
     });
 
     if(existing){
-      showToast(`"${existing.titre}" déjà dans ta collection`);
+      showToast(`✓ "${existing.titre}" — déjà dans ta collection`);
       openDetail(existing.id);
       return;
     }
 
     prefillFromSearch(info);
+    showToast(`✓ ${info.titre} identifié !`);
 
   }catch(err){
     status.style.display = 'none';
-    showToast('Scan échoué — essaie la recherche par titre');
+    // Afficher l'erreur exacte pour diagnostic
+    showToast(err.message.slice(0,80));
+    openAddModal();
   }
 }
 
